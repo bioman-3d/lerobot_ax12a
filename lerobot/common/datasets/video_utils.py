@@ -14,13 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 import subprocess
 import warnings
 from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+import einops
 import pyarrow as pa
 import torch
 import torchvision
@@ -33,6 +36,7 @@ def load_from_videos(
     videos_dir: Path,
     tolerance_s: float,
     backend: str = "pyav",
+    to_pytorch_format: bool = True,
 ):
     """Note: When using data workers (e.g. DataLoader with num_workers>0), do not call this function
     in the main process (e.g. by using a second Dataloader with num_workers=0). It will result in a Segmentation Fault.
@@ -51,14 +55,18 @@ def load_from_videos(
                 raise NotImplementedError("All video paths are expected to be the same for now.")
             video_path = data_dir / paths[0]
 
-            frames = decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
+            frames = decode_video_frames_torchvision(
+                video_path, timestamps, tolerance_s, backend, to_pytorch_format=to_pytorch_format
+            )
             item[key] = frames
         else:
             # load one frame
             timestamps = [item[key]["timestamp"]]
             video_path = data_dir / item[key]["path"]
 
-            frames = decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
+            frames = decode_video_frames_torchvision(
+                video_path, timestamps, tolerance_s, backend, to_pytorch_format=to_pytorch_format
+            )
             item[key] = frames[0]
 
     return item
@@ -70,6 +78,7 @@ def decode_video_frames_torchvision(
     tolerance_s: float,
     backend: str = "pyav",
     log_loaded_timestamps: bool = False,
+    to_pytorch_format: bool = True,
 ) -> torch.Tensor:
     """Loads frames associated to the requested timestamps of a video
 
@@ -129,8 +138,8 @@ def decode_video_frames_torchvision(
 
     reader = None
 
-    query_ts = torch.tensor(timestamps)
-    loaded_ts = torch.tensor(loaded_ts)
+    query_ts = torch.tensor(timestamps, dtype=torch.float32)
+    loaded_ts = torch.tensor(loaded_ts, dtype=torch.float32)
 
     # compute distances between each query timestamp and timestamps of all loaded frames
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
@@ -155,11 +164,45 @@ def decode_video_frames_torchvision(
     if log_loaded_timestamps:
         logging.info(f"{closest_ts=}")
 
-    # convert to the pytorch format which is float32 in [0,1] range (and channel first)
-    closest_frames = closest_frames.type(torch.float32) / 255
+    # Note that at this point the images are in torch.uint8, in [0, 255], channel-first.
+    if to_pytorch_format:
+        # Return as pytorch format: float32, normalized to [0,1], channel-first.
+        closest_frames = closest_frames.type(torch.float32) / 255
+    else:
+        # Return in numpy format: np.uint8, in [0, 255], channel-last.
+        closest_frames = einops.rearrange(closest_frames.numpy(), "... c h w -> ... h w c")
 
     assert len(timestamps) == len(closest_frames)
     return closest_frames
+
+
+@contextmanager
+def _ffmpeg_log_level_to_svt(ffmpeg_log_level: str | None):
+    """
+    Context manager to run ffmpeg command and cascade the ffmpeg log level to the corresponding SVT log level.
+    """
+    if ffmpeg_log_level is not None:
+        prior_svt_log_value = os.environ.get("SVT_LOG")
+        # Mapping of ffmpeg log level corresponding SVT log levels
+        svt_log_levels = {
+            "quiet": 0,  # SVT_LOG_FATAL
+            "panic": 0,  # SVT_LOG_FATAL
+            "fatal": 0,  # SVT_LOG_FATAL
+            "error": 1,  # SVT_LOG_ERROR
+            "warning": 2,  # SVT_LOG_WARM
+            "info": 3,  # SVT_LOG_INFO
+            "verbose": 3,  # SVT_LOG_INFO
+            "debug": 4,  # SVT_LOG_DEBUG
+            "trace": -1,  # SVT_LOG_ALL
+        }
+        os.environ["SVT_LOG"] = str(svt_log_levels[ffmpeg_log_level])
+        yield
+        if prior_svt_log_value is not None:
+            os.environ["SVT_LOG"] = prior_svt_log_value
+        else:
+            os.environ.pop("SVT_LOG")
+    else:
+        yield
 
 
 def encode_video_frames(
@@ -175,6 +218,7 @@ def encode_video_frames(
     overwrite: bool = False,
 ) -> None:
     """More info on ffmpeg arguments tuning on `benchmark/video/README.md`"""
+
     video_path = Path(video_path)
     video_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -207,13 +251,15 @@ def encode_video_frames(
         ffmpeg_args.append("-y")
 
     ffmpeg_cmd = ["ffmpeg"] + ffmpeg_args + [str(video_path)]
-    # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
-    subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
+
+    with _ffmpeg_log_level_to_svt(log_level):
+        # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
+        subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
 
     if not video_path.exists():
         raise OSError(
             f"Video encoding did not work. File not found: {video_path}. "
-            f"Try running the command manually to debug: `{''.join(ffmpeg_cmd)}`"
+            f"Try running the command manually to debug: `{' '.join(ffmpeg_cmd)}`"
         )
 
 

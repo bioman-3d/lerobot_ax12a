@@ -20,6 +20,8 @@ build-gpu:
 
 test-end-to-end:
 	${MAKE} DEVICE=$(DEVICE) test-act-ete-train
+	${MAKE} DEVICE=$(DEVICE) test-act-ete-train-lerobot-dataset-v2
+	${MAKE} DEVICE=$(DEVICE) test-act-ete-train-lerobot-dataset-v2-decode-video
 	${MAKE} DEVICE=$(DEVICE) test-act-ete-eval
 	${MAKE} DEVICE=$(DEVICE) test-act-ete-train-amp
 	${MAKE} DEVICE=$(DEVICE) test-act-ete-eval-amp
@@ -49,6 +51,47 @@ test-act-ete-train:
 		training.batch_size=2 \
 		training.image_transforms.enable=true \
 		hydra.run.dir=tests/outputs/act/
+
+test-act-ete-train-lerobot-dataset-v2:
+	python lerobot/scripts/train.py \
+		policy=act \
+		policy.dim_model=64 \
+		env=aloha \
+		wandb.enable=False \
+		training.offline_steps=2 \
+		training.online_steps=0 \
+		eval.n_episodes=1 \
+		eval.batch_size=1 \
+		device=$(DEVICE) \
+		training.save_checkpoint=true \
+		training.save_freq=2 \
+		policy.n_action_steps=20 \
+		policy.chunk_size=20 \
+		training.batch_size=2 \
+		training.image_transforms.enable=true \
+		hydra.run.dir=tests/outputs/act_buffer/ \
+		+use_lerobot_dataset_v2=true \
+
+test-act-ete-train-lerobot-dataset-v2-decode-video:
+	python lerobot/scripts/train.py \
+		policy=act \
+		policy.dim_model=64 \
+		env=aloha \
+		wandb.enable=False \
+		training.offline_steps=2 \
+		training.online_steps=0 \
+		eval.n_episodes=1 \
+		eval.batch_size=1 \
+		device=$(DEVICE) \
+		training.save_checkpoint=true \
+		training.save_freq=2 \
+		policy.n_action_steps=20 \
+		policy.chunk_size=20 \
+		training.batch_size=2 \
+		training.image_transforms.enable=true \
+		hydra.run.dir=tests/outputs/act_buffer_decode_video/ \
+		+use_lerobot_dataset_v2=true \
+		+lerobot_dataset_v2_decode_images=true \
 
 test-act-ete-eval:
 	python lerobot/scripts/eval.py \

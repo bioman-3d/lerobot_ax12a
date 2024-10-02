@@ -23,7 +23,6 @@ from pprint import pformat
 from threading import Lock
 
 import hydra
-import numpy as np
 import torch
 from deepdiff import DeepDiff
 from omegaconf import DictConfig, ListConfig, OmegaConf
@@ -33,7 +32,11 @@ from torch.cuda.amp import GradScaler
 
 from lerobot.common.datasets.factory import make_dataset, resolve_delta_timestamps
 from lerobot.common.datasets.lerobot_dataset import MultiLeRobotDataset
-from lerobot.common.datasets.online_buffer import OnlineBuffer, compute_sampler_weights
+from lerobot.common.datasets.online_buffer import (
+    LeRobotDatasetV2,
+    LeRobotDatasetV2ImageMode,
+    compute_sampler_weights,
+)
 from lerobot.common.datasets.sampler import EpisodeAwareSampler
 from lerobot.common.datasets.utils import cycle
 from lerobot.common.envs.factory import make_env
@@ -403,8 +406,21 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     else:
         shuffle = True
         sampler = None
+
+    if cfg.get("use_lerobot_dataset_v2", False):
+        logging.info("Siphoning the dataset into a LeRobotDatasetV2.")
+        decode_images = cfg.get("lerobot_dataset_v2_decode_images", False)
+        offline_dataset_for_dataloader = LeRobotDatasetV2.from_huggingface_hub(
+            offline_dataset.repo_id,
+            delta_timestamps=offline_dataset.delta_timestamps,
+            decode_images=decode_images,
+            image_transform=offline_dataset.image_transforms,
+        )
+    else:
+        offline_dataset_for_dataloader = offline_dataset
+
     dataloader = torch.utils.data.DataLoader(
-        offline_dataset,
+        offline_dataset_for_dataloader,
         num_workers=cfg.training.num_workers,
         batch_size=cfg.training.batch_size,
         shuffle=shuffle,
@@ -470,18 +486,14 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             "was made. This is because the online buffer is updated on disk during training, independently "
             "of our explicit checkpointing mechanisms."
         )
-    online_dataset = OnlineBuffer(
+    online_dataset = LeRobotDatasetV2(
         online_buffer_path,
-        data_spec={
-            **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.input_shapes.items()},
-            **{k: {"shape": v, "dtype": np.dtype("float32")} for k, v in policy.config.output_shapes.items()},
-            "next.reward": {"shape": (), "dtype": np.dtype("float32")},
-            "next.done": {"shape": (), "dtype": np.dtype("?")},
-            "next.success": {"shape": (), "dtype": np.dtype("?")},
-        },
         buffer_capacity=cfg.training.online_buffer_capacity,
+        use_as_filo_buffer=True,
+        image_mode=LeRobotDatasetV2ImageMode.MEMMAP,
         fps=online_env.unwrapped.metadata["render_fps"],
         delta_timestamps=cfg.training.delta_timestamps,
+        image_transform=offline_dataset.image_transforms,
     )
 
     # If we are doing online rollouts asynchronously, deepcopy the policy to use for online rollouts (this
@@ -558,7 +570,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
             with lock:
                 start_update_buffer_time = time.perf_counter()
-                online_dataset.add_data(eval_info["episodes"])
+                online_dataset.add_episodes(eval_info["episodes"])
 
                 # Update the concatenated dataset length used during sampling.
                 concat_dataset.cumulative_sizes = concat_dataset.cumsum(concat_dataset.datasets)
