@@ -7,11 +7,18 @@ pytest -sx tests/test_cameras.py::test_camera
 ```
 """
 
+from contextlib import nullcontext
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
 from lerobot import available_robots
-from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera, save_images_from_cameras
+from lerobot.common.robot_devices.cameras.opencv import (
+    OpenCVCamera,
+    OpenCVCameraConfig,
+    save_images_from_cameras,
+)
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 from tests.utils import require_robot
 
@@ -129,6 +136,40 @@ def test_camera(request, robot_type):
     with pytest.raises(OSError):
         camera.connect()
     del camera
+
+
+@pytest.mark.parametrize("request_resolution", [(10, 10)])
+# This parameter is only used when the camera is not available. Checks for various configurations of
+# (mis)match between the requested resolution and the target resolution.
+@pytest.mark.parametrize("read_resolution", [(10, 10), (10, 20), (20, 10), (20, 20)])
+# Note: indirect=True passes the CAMERA_INDEX to the `is_camera_available` fixture, then this returns the
+# `is_camera_available` parameter for the test.
+@pytest.mark.parametrize("is_camera_available", [CAMERA_INDEX], indirect=True)
+def test_camera_resize(
+    request_resolution: tuple[int, int], read_resolution: tuple[int, int], is_camera_available: bool
+):
+    """
+    Check that, even if the requested resolution is not supported natively, the `OpenCVCamera.read` method
+    returns an image with the requested resolution.
+
+    When `is_camera_available=True` this test also checks that the `OpenCVCamera.connect` works with natively
+    unsupported resolutions, otherwise if `is_camera_available=False` we have to use a mock patch which
+    unfortunately can't test this.
+    """
+    camera = OpenCVCamera(0, OpenCVCameraConfig(height=request_resolution[0], width=request_resolution[1]))
+    with nullcontext() if is_camera_available else patch("cv2.VideoCapture") as mock_video_capture:
+        if not is_camera_available:
+            # Set an output resolution that is different from the requested one.
+            mock_video_capture.return_value.read.return_value = (
+                True,
+                np.zeros(read_resolution, dtype=np.uint8),
+            )
+            mock_video_capture.return_value.isOpened.return_value = True
+        camera.connect()
+    assert camera.height == request_resolution[0]
+    assert camera.width == request_resolution[1]
+    img = camera.read()
+    assert img.shape[:2] == request_resolution
 
 
 @pytest.mark.parametrize("robot_type", available_robots)
