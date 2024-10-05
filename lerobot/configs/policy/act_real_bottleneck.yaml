@@ -1,10 +1,31 @@
 # @package _global_
 
+# The `act_real_bottleneck.yaml` adds a bottleneck layer to try to reduce overfitting on joint states.
+#
+# Example of usage for training:
+# ```bash
+# python lerobot/scripts/train.py \
+#   policy=act_real_bottleneck \
+#   env=dora_aloha_real
+# ```
+
 seed: 1000
-dataset_repo_id: lerobot/aloha_sim_insertion_human
+dataset_repo_id: lerobot/aloha_static_vinh_cup
 
 override_dataset_stats:
-  observation.images.top:
+  observation.images.cam_right_wrist:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
+  observation.images.cam_left_wrist:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
+  observation.images.cam_high:
+    # stats from imagenet, since we use a pretrained vision model
+    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
+  observation.images.cam_low:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
@@ -12,7 +33,7 @@ override_dataset_stats:
 training:
   offline_steps: 100000
   online_steps: 0
-  eval_freq: 20000
+  eval_freq: -1
   save_freq: 20000
   save_checkpoint: true
 
@@ -41,14 +62,20 @@ policy:
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.images.top: [3, 480, 640]
+    observation.images.cam_right_wrist: [3, 480, 640]
+    observation.images.cam_left_wrist: [3, 480, 640]
+    observation.images.cam_high: [3, 480, 640]
+    observation.images.cam_low: [3, 480, 640]
     observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
-    observation.images.top: mean_std
+    observation.images.cam_right_wrist: mean_std
+    observation.images.cam_left_wrist: mean_std
+    observation.images.cam_high: mean_std
+    observation.images.cam_low: mean_std
     observation.state: mean_std
   output_normalization_modes:
     action: mean_std
@@ -73,7 +100,7 @@ policy:
   use_vae: true
   latent_dim: 32
   n_vae_encoder_layers: 4
-  use_joint_state_bottleneck_layer: False
+  use_joint_state_bottleneck_layer: True
 
   # Inference.
   temporal_ensemble_coeff: null
