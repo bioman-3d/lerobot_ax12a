@@ -145,13 +145,28 @@ def test_record_and_replay_and_policy(tmpdir, request, robot_type, mock):
 
     replay(robot, episode=0, fps=30, root=root, repo_id=repo_id)
 
+    # TODO(rcadene, aliberts): rethink this design
+    if robot_type == "aloha":
+        env_name = "aloha_real"
+        policy_name = "act_aloha_real"
+    elif robot_type in ["koch", "koch_bimanual"]:
+        env_name = "koch_real"
+        policy_name = "act_koch_real"
+    else:
+        raise NotImplementedError(robot_type)
+
+    overrides = [
+        f"env={env_name}",
+        f"policy={policy_name}",
+        f"device={DEVICE}",
+    ]
+
+    if robot_type == "koch_bimanual":
+        overrides += ["env.state_dim=12", "env.action_dim=12"]
+
     cfg = init_hydra_config(
         DEFAULT_CONFIG_PATH,
-        overrides=[
-            f"env={env_name}",
-            f"policy={policy_name}",
-            f"device={DEVICE}",
-        ],
+        overrides=overrides,
     )
 
     policy = make_policy(hydra_cfg=cfg, dataset_stats=dataset.stats)
