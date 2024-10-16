@@ -20,7 +20,8 @@ The majority of changes here involve removing unused code, unifying naming, and 
 """
 
 import math
-from collections import deque
+import time
+from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 from typing import Callable
 
@@ -88,21 +89,26 @@ class ACTPolicy(
 
         self.reset()
 
+        # TODO(rcadene): Add delta timestamps in policy
+        FPS = 30  # noqa: N806
+        self.delta_timestamps = {
+            "action": [i / FPS for i in range(self.config.n_action_steps)],
+        }
+
     def reset(self):
         """This should be called whenever the environment is reset."""
         if self.config.temporal_ensemble_coeff is not None:
             self.temporal_ensembler.reset()
         else:
-            self._action_queue = deque([], maxlen=self.config.n_action_steps)
+            # TODO(rcadene): set proper maxlen
+            self.executor = None
+            self.future = None
+            self._actions = None
+            self._actions_timestamps = None
+            self._action_index = 0
 
     @torch.no_grad
-    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
-        """Select a single action given environment observations.
-
-        This method wraps `select_actions` in order to return one action at a time for execution in the
-        environment. It works by managing the actions in a queue and only calling `select_actions` when the
-        queue is empty.
-        """
+    def inference(self, batch: dict[str, Tensor]) -> Tensor:
         self.eval()
 
         batch = self.normalize_inputs(batch)
@@ -118,18 +124,56 @@ class ACTPolicy(
             action = self.temporal_ensembler.update(actions)
             return action
 
-        # Action queue logic for n_action_steps > 1. When the action_queue is depleted, populate it by
-        # querying the policy.
-        if len(self._action_queue) == 0:
-            actions = self.model(batch)[0][:, : self.config.n_action_steps]
+        actions = self.model(batch)[0][:, : self.config.n_action_steps]
 
-            # TODO(rcadene): make _forward return output dictionary?
-            actions = self.unnormalize_outputs({"action": actions})["action"]
+        # TODO(rcadene): make _forward return output dictionary?
+        actions = self.unnormalize_outputs({"action": actions})["action"]
+        return actions
 
-            # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
-            # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
-            self._action_queue.extend(actions.transpose(0, 1))
-        return self._action_queue.popleft()
+    def inference_with_timestamp(self, batch, timestamp):
+        start_t = time.perf_counter()
+
+        actions = self.inference(batch)
+
+        dt_s = time.perf_counter() - start_t
+        print(f"Inference, {dt_s * 1000:5.2f} ({1/ dt_s:3.1f}hz) -- {timestamp}")
+
+        return actions, timestamp
+
+    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+        present_timestamp = time.time()
+
+        if self.executor is None:
+            self.executor = ThreadPoolExecutor(max_workers=1)
+            self.future = self.executor.submit(self.inference_with_timestamp, batch, present_timestamp)
+            actions, inference_timestamp = self.future.result()
+            self._actions = actions
+            self._actions_timestamps = inference_timestamp + np.array(self.delta_timestamps["action"])
+
+        if self._action_index == 90:
+            self.future = self.executor.submit(self.inference_with_timestamp, batch, present_timestamp)
+
+        if self._action_index >= self._actions.shape[1]:
+            actions, inference_timestamp = self.future.result()
+
+            # find corresponding action_index in new actions
+            present_action_timestamp = self._actions_timestamps[-1]
+            new_actions_timestamps = inference_timestamp + np.array(self.delta_timestamps["action"])
+            distances = np.abs(new_actions_timestamps - present_action_timestamp)
+            nearest_idx = distances.argmin()
+
+            # update
+            self._action_index = nearest_idx
+            self._actions_timestamps = new_actions_timestamps
+            self._actions = actions
+            # TODO(rcadene): handle edge cases
+
+        action = self._actions[:, self._action_index]
+        present_action_timestamp = self._actions_timestamps[self._action_index]
+        self._action_index += 1
+        self._present_timestamp = present_timestamp
+        self._present_action_timestamp = present_action_timestamp
+        return action
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""
