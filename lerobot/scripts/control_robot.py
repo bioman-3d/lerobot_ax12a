@@ -433,6 +433,12 @@ if __name__ == "__main__":
         help="Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).",
     )
     parser_record.add_argument(
+        "--resume",
+        type=int,
+        default=0,
+        help="Resume recording on an existing dataset.",
+    )
+    parser_record.add_argument(
         "--warmup-time-s",
         type=int,
         default=10,
