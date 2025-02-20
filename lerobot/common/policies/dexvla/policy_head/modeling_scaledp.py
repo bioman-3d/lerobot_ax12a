@@ -219,10 +219,6 @@ class ScaleDP(PreTrainedModel):
             assert config.time_as_cond
             T_cond += config.n_obs_steps
 
-        self.is_tinyvla = config.is_tinyvla
-        if config.is_tinyvla:
-            self.global_1d_pool = nn.AdaptiveAvgPool1d(1)
-            self.norm_after_pool = nn.LayerNorm(config.cond_dim)
         # self.combine = nn.Linear(cond_dim+state_dim, cond_dim)
         self.combine = nn.Sequential(
             nn.Linear(config.cond_dim+config.state_dim, 1024),
@@ -456,11 +452,7 @@ class ScaleDP(PreTrainedModel):
         t: (N,) tensor of diffusion timesteps
         global_cond: (N, n_obs_steps, D) tensor of conScaleDPions: image embeddings
         """
-        if self.is_tinyvla:
-            global_cond = self.global_1d_pool(global_cond.permute(0, 2, 1)).squeeze(-1)
-            global_cond = self.norm_after_pool(global_cond)
-        else:
-            global_cond = global_cond.squeeze(1)
+        global_cond = global_cond.squeeze(1)
         global_cond = torch.cat([global_cond, states], dim=-1) if states is not None else global_cond
         global_cond = self.combine(global_cond)
 

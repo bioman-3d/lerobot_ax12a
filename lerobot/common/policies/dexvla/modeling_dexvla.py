@@ -1455,12 +1455,6 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
         self.vocab_size = config.vocab_size
 
         self.padding_side = "left"  # set it to left by default, user can use setter to change padding_sides
-        self.with_llm_head = config.with_llm_head
-        # self.with_external_vit = config.with_external_vit
-        self.with_text_fcs = config.with_text_fcs
-        self.only_using_input_embeddings = config.only_using_input_embeddings
-        self.using_film = config.using_film
-        self.using_xattn = config.using_xattn
 
         self.llm_loss_weight = config.llm_loss_weight
 
@@ -1472,8 +1466,8 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
 
         # Initialize weights and apply final processing
         self.post_init()
-        if config.policy_head_config.model_type == "dit_diffusion_policy":
-            self.policy_head.init_weights()
+
+        self.policy_head.init_weights()
         self.input_action_proj = ActionProjector(config.hidden_size, config.hidden_size)
 
         if self.using_film:
@@ -1688,7 +1682,6 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
             states: Optional[torch.FloatTensor] = None,
             is_pad: bool = False,
             is_eval: bool = False,
-            tinyvla: bool = False,
     ) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
         r"""
         Args:
@@ -1802,8 +1795,6 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
         )
 
         hidden_states = outputs[0]
-        if tinyvla and is_eval:  # dex-vla supports tinyvla-style VLA
-            return hidden_states
 
         logits = self.lm_head(hidden_states)
         logits = logits.float()
@@ -1839,11 +1830,9 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
                 rope_deltas=rope_deltas,
             )
 
-        if self.using_film:
-            action_hidden_states = self.film_forward(labels=labels, input_ids=input_ids,
+        action_hidden_states = self.film_forward(labels=labels, input_ids=input_ids,
                                                      hidden_states=hidden_states)
-        else:  # tinyvla
-            action_hidden_states = hidden_states
+
 
         ret = self.policy_head(actions=actions, hidden_states=action_hidden_states, states=states, is_pad=is_pad)
 
@@ -2041,30 +2030,3 @@ class DexVLAPolicy(Qwen2VLPreTrainedModel, GenerationMixin):
         action = self.policy_head(actions, action_hidden_states, states.to(all_hidden_states.dtype), is_pad)
         return action, outputs_text
 
-    def evaluate_tinyvla(self,
-                         input_ids: torch.LongTensor = None,
-                         actions=None,
-                         states=None,
-                         is_pad=None,
-                         is_eval=True,
-                         pixel_values=None,
-                         attention_mask=None,
-                         image_grid_thw=None,
-                         ):
-        input_ids = input_ids.to('cuda')
-        with torch.inference_mode():
-            all_hidden_states = self.forward(input_ids,
-                                             pixel_values=pixel_values,
-                                             attention_mask=attention_mask,
-                                             image_grid_thw=image_grid_thw,
-                                             is_eval=is_eval,
-                                             tinyvla=True)
-
-        all_hidden_states = torch.mean(all_hidden_states, dim=1).unsqueeze(1)
-
-        action = self.policy_head(actions, all_hidden_states, states.to(all_hidden_states.dtype), is_pad)
-        return action, "tinyvla no output"
-
-
-from transformers import AutoModelForCausalLM
-AutoModelForCausalLM.register(DexVLAConfig, DexVLAPolicy)

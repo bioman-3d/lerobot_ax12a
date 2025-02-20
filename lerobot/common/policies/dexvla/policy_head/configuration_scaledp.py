@@ -34,10 +34,8 @@ class ScaleDPPolicyConfig(PretrainedConfig):
             learn_sigma: bool = False,
             model_size: str = "none",
             num_inference_timesteps: int = 10,
-            num_queries: int = 16,
             noise_samples: int = 1,
             num_train_timesteps: int = 100,
-            is_tinyvla: bool = False,
             **kwargs
     ):
         if model_size != "none":
@@ -54,7 +52,6 @@ class ScaleDPPolicyConfig(PretrainedConfig):
         self.output_dim = action_dim
         self.prediction_horizon = prediction_horizon
 
-        self.is_tinyvla = is_tinyvla
 
         self.cond_dim = cond_dim
         self.state_dim = state_dim

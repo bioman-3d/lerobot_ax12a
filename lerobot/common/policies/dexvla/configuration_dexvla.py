@@ -208,7 +208,7 @@ class DexVLAConfig(PretrainedConfig):
         policy_head_size='DiT_L',
         action_dim=10,
         state_dim=7,
-        non_lora_lr=1e-4,
+        chunk_size=50,
         **kwargs,
     ):
         if isinstance(vision_config, dict):
@@ -228,18 +228,11 @@ class DexVLAConfig(PretrainedConfig):
 
         # for loading policy head
         self.policy_head_type = policy_head_type
-        # if policy_head_type == 'dit_diffusion_policy':
-        #     # self.policy_head_size = kwargs.get("policy_head_size", "none")
-        #     self.policy_head_size = policy_head_size
-        #     # self.policy_head_config = register_configuration_class(self.policy_head_type, model_size=policy_head_size)
-        #     self.policy_head_config = AutoConfig.for_model(model_type=self.policy_head_type,
-        #                                                    model_size=self.policy_head_size,
-        #                                                    global_cond_dim=hidden_size, action_dim=action_dim,
-        #                                                    state_dim=state_dim)
-        # elif policy_head_type == 'unet_diffusion_policy':
-        #     self.policy_head_config = AutoConfig.for_model(model_type=self.policy_head_type,
-        #                                                    global_cond_dim=hidden_size, action_dim=action_dim,
-        #                                                    state_dim=state_dim)
+        self.policy_head_config = AutoConfig.for_model(model_type=policy_head_type,
+                                                  model_size=policy_head_size,
+                                                  cond_dim=hidden_size, action_dim=action_dim,
+                                                  prediction_horizon=chunk_size,
+                                                  state_dim=state_dim)
         # for backward compatibility
         if num_key_value_heads is None:
             num_key_value_heads = num_attention_heads
@@ -266,5 +259,3 @@ class DexVLAConfig(PretrainedConfig):
 
         super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
 
-from transformers import AutoConfig
-AutoConfig.register("dex_vla", DexVLAConfig)
