@@ -14,248 +14,141 @@
 # limitations under the License.
 """Qwen2VL model configuration"""
 
-import os
-from typing import Union
+from typing import Tuple
 
-from transformers.configuration_utils import PretrainedConfig
-from transformers.modeling_rope_utils import rope_config_validation
+from dataclasses import dataclass, field
+
+from transformers import AutoConfig
+
+from lerobot.common.optim.optimizers import AdamWConfig
+from lerobot.common.optim.schedulers import (
+    CosineDecayWithWarmupSchedulerConfig,
+)
 from transformers.utils import logging
-from transformers import AutoModel, AutoConfig
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.common.policies.dexvla.policy_heads.configuration_scaledp import ScaleDPPolicyConfig
+from lerobot.common.policies.dexvla.policy_heads.configuration_unet_diffusion import UnetDiffusionPolicyConfig
+from lerobot.common.policies.dexvla.qwe2_vla.configuration_qwen2_vla import Qwen2VLAConfig
+from lerobot.configs.types import NormalizationMode
 
 logger = logging.get_logger(__name__)
+@PreTrainedConfig.register_subclass("dexvla")
+@dataclass
+class DexVLAConfig(PreTrainedConfig):
+    # For loading policy head
+    policy_head_type: str = 'scale_dp_policy'
+    policy_head_size: str = 'ScaleDP_L'
+    action_dim: int = 14
+    state_dim: int = 14
+    chunk_size: int = 50
+    n_action_steps: int = 50
+    n_obs_steps: int = 1
 
+    hidden_size: int = 1536
+    qwen2_vla_path: str = '/media/rl/HDD/data/weights/Qwen2-VL-2B-Instruct'
 
-class Qwen2VLAVisionConfig(PretrainedConfig):
-    model_type = "dex_vla"
+    pretrained_path: str = None # pretrained dexvla
+    using_film: bool = True
+    llm_loss_weight: float = 1.0
+    with_llm_head: bool = True
+    using_reasoning: bool = True
+    resize_size: tuple = (240, 320)
+    # Training presets
+    optimizer_lr: float = 2e-5
+    optimizer_betas: Tuple[float, float] = (0.9, 0.95)
+    optimizer_eps: float = 1e-8
+    optimizer_weight_decay: float = 1e-10
 
-    def __init__(
-        self,
-        depth=32,
-        embed_dim=1280,
-        hidden_size=3584,
-        hidden_act="quick_gelu",
-        mlp_ratio=4,
-        num_heads=16,
-        in_channels=3,
-        patch_size=14,
-        spatial_merge_size=2,
-        temporal_patch_size=2,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
+    scheduler_warmup_steps: int = 1_000
+    scheduler_decay_steps: int = 30_000
+    scheduler_decay_lr: float = 2.5e-6
 
-        self.depth = depth
-        self.embed_dim = embed_dim
-        self.hidden_size = hidden_size
-        self.hidden_act = hidden_act
-        self.mlp_ratio = mlp_ratio
-        self.num_heads = num_heads
-        self.in_channels = in_channels
-        self.patch_size = patch_size
-        self.spatial_merge_size = spatial_merge_size
-        self.temporal_patch_size = temporal_patch_size
+    normalization_mapping: dict[str, NormalizationMode] = field(
+        default_factory=lambda: {
+            # "VISUAL": NormalizationMode.MEAN_STD,
+            "STATE": NormalizationMode.MEAN_STD,
+            "ACTION": NormalizationMode.MIN_MAX,
+        }
+    )
 
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: Union[str, os.PathLike], **kwargs) -> "PretrainedConfig":
-        cls._set_token_in_kwargs(kwargs)
-
-        config_dict, kwargs = cls.get_config_dict(pretrained_model_name_or_path, **kwargs)
-
-        if config_dict.get("model_type") == "qwen2_vl":
-            config_dict = config_dict["vision_config"]
-
-        if "model_type" in config_dict and hasattr(cls, "model_type") and config_dict["model_type"] != cls.model_type:
-            logger.warning(
-                f"You are using a model of type {config_dict['model_type']} to instantiate a model of type "
-                f"{cls.model_type}. This is not supported for all configurations of models and can yield errors."
+    def __post_init__(self):
+        if self.n_action_steps > self.chunk_size:
+            raise ValueError(
+                f"The chunk size is the upper bound for the number of action steps per model invocation. Got "
+                f"{self.n_action_steps} for `n_action_steps` and {self.chunk_size} for `chunk_size`."
             )
+        if self.n_obs_steps != 1:
+            raise ValueError(
+                f"Multiple observation steps not handled yet. Got `nobs_steps={self.n_obs_steps}`"
+            )
+        if self.using_reasoning:
+            assert self.using_film, f"using_reasoning requires `using_film=True`"
+            assert self.with_llm_head, f"using_reasoning requires `with_llm_head=True`"
+            print("You have set using_reasoning=True, please make sure your data has key 'reasoning'.")
+        else:
+            print(f"Warning:DexVLA recommend to use reasoning data which can better handle long-horizon and dexterous tasks. You can set 'using_reaasoning=True'.")
 
-        return cls.from_dict(config_dict, **kwargs)
+        if self.policy_head_type == 'scale_dp_policy':
+            self.policy_head_config = AutoConfig.for_model(
+                model_type=self.policy_head_type,
+                model_size=self.policy_head_size,
+                cond_dim=self.hidden_size,
+                action_dim=self.action_dim,
+                prediction_horizon=self.chunk_size,
+                state_dim=self.state_dim
+            )
+        elif self.policy_head_type == 'unet_diffusion':
+            self.policy_head_config = AutoConfig.for_model(
+                model_type=self.policy_head_type,
+                global_cond_dim=self.hidden_size,
+                action_dim=self.action_dim,
+                state_dim=self.state_dim
+            )
+        else:
+            raise ValueError(f'Policy head type {self.policy_head_type} not supported')
+
+        self.qwen2_vla_config = AutoConfig.from_pretrained(self.qwen2_vla_path)
+
+    def validate_features(self) -> None:
+        # TODO: implement value error
+        if not self.image_features and not self.env_state_feature:
+            raise ValueError("You must provide at least one image or the environment state among the inputs.")
+
+        # for i in range(self.empty_cameras):
+        #     key = f"observation.images.empty_camera_{i}"
+        #     empty_camera = PolicyFeature(
+        #         type=FeatureType.VISUAL,
+        #         shape=(3, 480, 640),
+        #     )
+        #     self.input_features[key] = empty_camera
+
+    def get_optimizer_preset(self) -> AdamWConfig:
+        return AdamWConfig(
+            lr=self.optimizer_lr,
+            betas=self.optimizer_betas,
+            eps=self.optimizer_eps,
+            weight_decay=self.optimizer_weight_decay,
+        )
+
+    def get_scheduler_preset(self):
+        return CosineDecayWithWarmupSchedulerConfig(
+            peak_lr=self.optimizer_lr,
+            decay_lr=self.scheduler_decay_lr,
+            num_warmup_steps=self.scheduler_warmup_steps,
+            num_decay_steps=self.scheduler_decay_steps,
+        )
+
+    @property
+    def observation_delta_indices(self) -> None:
+        return None
+
+    @property
+    def action_delta_indices(self) -> list:
+        return list(range(self.chunk_size))
+
+    @property
+    def reward_delta_indices(self) -> None:
+        return None
 
 
-class DexVLAConfig(PretrainedConfig):
-    r"""
-    This is the configuration class to store the configuration of a [`Qwen2VLModel`]. It is used to instantiate a
-    Qwen2-VL model according to the specified arguments, defining the model architecture. Instantiating a configuration
-    with the defaults will yield a similar configuration to that of
-    Qwen2-VL-7B-Instruct [Qwen/Qwen2-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct).
-
-    Configuration objects inherit from [`PretrainedConfig`] and can be used to control the model outputs. Read the
-    documentation from [`PretrainedConfig`] for more information.
-
-
-    Args:
-        vocab_size (`int`, *optional*, defaults to 152064):
-            Vocabulary size of the Qwen2VL model. Defines the number of different tokens that can be represented by the
-            `inputs_ids` passed when calling [`Qwen2VLModel`]
-        hidden_size (`int`, *optional*, defaults to 8192):
-            Dimension of the hidden representations.
-        intermediate_size (`int`, *optional*, defaults to 29568):
-            Dimension of the MLP representations.
-        num_hidden_layers (`int`, *optional*, defaults to 80):
-            Number of hidden layers in the Transformer encoder.
-        num_attention_heads (`int`, *optional*, defaults to 64):
-            Number of attention heads for each attention layer in the Transformer encoder.
-        num_key_value_heads (`int`, *optional*, defaults to 8):
-            This is the number of key_value heads that should be used to implement Grouped Query Attention. If
-            `num_key_value_heads=num_attention_heads`, the model will use Multi Head Attention (MHA), if
-            `num_key_value_heads=1` the model will use Multi Query Attention (MQA) otherwise GQA is used. When
-            converting a multi-head checkpoint to a GQA checkpoint, each group key and value head should be constructed
-            by meanpooling all the original heads within that group. For more details checkout [this
-            paper](https://arxiv.org/pdf/2305.13245.pdf). If it is not specified, will default to `32`.
-        hidden_act (`str` or `function`, *optional*, defaults to `"silu"`):
-            The non-linear activation function (function or string) in the decoder.
-        max_position_embeddings (`int`, *optional*, defaults to 32768):
-            The maximum sequence length that this model might ever be used with.
-        initializer_range (`float`, *optional*, defaults to 0.02):
-            The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
-        rms_norm_eps (`float`, *optional*, defaults to 1e-05):
-            The epsilon used by the rms normalization layers.
-        use_cache (`bool`, *optional*, defaults to `True`):
-            Whether or not the model should return the last key/values attentions (not used by all models). Only
-            relevant if `config.is_decoder=True`.
-        tie_word_embeddings (`bool`, *optional*, defaults to `False`):
-            Whether the model's input and output word embeddings should be tied.
-        rope_theta (`float`, *optional*, defaults to 1000000.0):
-            The base period of the RoPE embeddings.
-        use_sliding_window (`bool`, *optional*, defaults to `False`):
-            Whether to use sliding window attention.
-        sliding_window (`int`, *optional*, defaults to 4096):
-            Sliding window attention (SWA) window size. If not specified, will default to `4096`.
-        max_window_layers (`int`, *optional*, defaults to 80):
-            The number of layers that use SWA (Sliding Window Attention). The bottom layers use SWA while the top use full attention.
-        attention_dropout (`float`, *optional*, defaults to 0.0):
-            The dropout ratio for the attention probabilities.
-        vision_config (`Dict`, *optional*):
-            The config for the visual encoder initialization.
-        rope_scaling (`Dict`, *optional*):
-            Dictionary containing the scaling configuration for the RoPE embeddings. NOTE: if you apply new rope type
-            and you expect the model to work on longer `max_position_embeddings`, we recommend you to update this value
-            accordingly.
-            Expected contents:
-                `rope_type` (`str`):
-                    The sub-variant of RoPE to use. Can be one of ['default', 'linear', 'dynamic', 'yarn', 'longrope',
-                    'llama3'], with 'default' being the original RoPE implementation.
-                `factor` (`float`, *optional*):
-                    Used with all rope types except 'default'. The scaling factor to apply to the RoPE embeddings. In
-                    most scaling types, a `factor` of x will enable the model to handle sequences of length x *
-                    original maximum pre-trained length.
-                `original_max_position_embeddings` (`int`, *optional*):
-                    Used with 'dynamic', 'longrope' and 'llama3'. The original max position embeddings used during
-                    pretraining.
-                `attention_factor` (`float`, *optional*):
-                    Used with 'yarn' and 'longrope'. The scaling factor to be applied on the attention
-                    computation. If unspecified, it defaults to value recommended by the implementation, using the
-                    `factor` field to infer the suggested value.
-                `beta_fast` (`float`, *optional*):
-                    Only used with 'yarn'. Parameter to set the boundary for extrapolation (only) in the linear
-                    ramp function. If unspecified, it defaults to 32.
-                `beta_slow` (`float`, *optional*):
-                    Only used with 'yarn'. Parameter to set the boundary for interpolation (only) in the linear
-                    ramp function. If unspecified, it defaults to 1.
-                `short_factor` (`List[float]`, *optional*):
-                    Only used with 'longrope'. The scaling factor to be applied to short contexts (<
-                    `original_max_position_embeddings`). Must be a list of numbers with the same length as the hidden
-                    size divided by the number of attention heads divided by 2
-                `long_factor` (`List[float]`, *optional*):
-                    Only used with 'longrope'. The scaling factor to be applied to long contexts (<
-                    `original_max_position_embeddings`). Must be a list of numbers with the same length as the hidden
-                    size divided by the number of attention heads divided by 2
-                `low_freq_factor` (`float`, *optional*):
-                    Only used with 'llama3'. Scaling factor applied to low frequency components of the RoPE
-                `high_freq_factor` (`float`, *optional*):
-                    Only used with 'llama3'. Scaling factor applied to high frequency components of the RoPE
-
-    ```python
-    >>> from transformers import Qwen2VLForConditionalGeneration, Qwen2VLConfig
-
-    >>> # Initializing a Qwen2VL style configuration
-    >>> configuration = Qwen2VLConfig()
-
-    >>> # Initializing a model from the Qwen2-VL-7B style configuration
-    >>> model = Qwen2VLForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
-
-    model_type = "qwen2_vla"
-    keys_to_ignore_at_inference = ["past_key_values"]
-
-    def __init__(
-        self,
-        vocab_size=152064,
-        hidden_size=8192,
-        intermediate_size=29568,
-        num_hidden_layers=80,
-        num_attention_heads=64,
-        num_key_value_heads=8,
-        hidden_act="silu",
-        max_position_embeddings=32768,
-        initializer_range=0.02,
-        rms_norm_eps=1e-05,
-        use_cache=True,
-        tie_word_embeddings=False,
-        rope_theta=1000000.0,
-        use_sliding_window=False,
-        sliding_window=4096,
-        max_window_layers=80,
-        attention_dropout=0.0,
-        vision_config=None,
-        rope_scaling=None,
-        # For loading policy head
-        policy_head_type='dit_diffusion_policy',  # dit_diffusion_policy
-        policy_head_size='DiT_L',
-        action_dim=10,
-        state_dim=7,
-        chunk_size=50,
-        **kwargs,
-    ):
-        if isinstance(vision_config, dict):
-            self.vision_config = Qwen2VLAVisionConfig(**vision_config)
-        elif vision_config is None:
-            self.vision_config = Qwen2VLAVisionConfig()
-
-        self.vocab_size = vocab_size
-        self.max_position_embeddings = max_position_embeddings
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
-        self.num_hidden_layers = num_hidden_layers
-        self.num_attention_heads = num_attention_heads
-        self.use_sliding_window = use_sliding_window
-        self.sliding_window = sliding_window
-        self.max_window_layers = max_window_layers
-
-        # for loading policy head
-        self.policy_head_type = policy_head_type
-        self.policy_head_config = AutoConfig.for_model(model_type=policy_head_type,
-                                                  model_size=policy_head_size,
-                                                  cond_dim=hidden_size, action_dim=action_dim,
-                                                  prediction_horizon=chunk_size,
-                                                  state_dim=state_dim)
-        # for backward compatibility
-        if num_key_value_heads is None:
-            num_key_value_heads = num_attention_heads
-
-        self.num_key_value_heads = num_key_value_heads
-        self.hidden_act = hidden_act
-        self.initializer_range = initializer_range
-        self.rms_norm_eps = rms_norm_eps
-        self.use_cache = use_cache
-        self.rope_theta = rope_theta
-        self.attention_dropout = attention_dropout
-        self.rope_scaling = rope_scaling
-
-        # Validate the correctness of rotary position embeddings parameters
-        # BC: if there is a 'type' field, move it to 'rope_type'.
-        # and change type from 'mrope' to 'default' because `mrope` does defeault RoPE calculations
-        # one can set it to "linear"/"dynamic" etc. to have scaled RoPE
-        # TODO: @raushan update config in the hub
-        if self.rope_scaling is not None and "type" in self.rope_scaling:
-            if self.rope_scaling["type"] == "mrope":
-                self.rope_scaling["type"] = "default"
-            self.rope_scaling["rope_type"] = self.rope_scaling["type"]
-        rope_config_validation(self, ignore_keys={"mrope_section"})
-
-        super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
 
