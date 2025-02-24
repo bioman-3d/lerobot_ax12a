@@ -45,7 +45,7 @@ class DexVLAConfig(PreTrainedConfig):
     n_obs_steps: int = 1
 
     hidden_size: int = 1536
-    qwen2_vla_path: str = '/media/rl/HDD/data/weights/Qwen2-VL-2B-Instruct'
+    qwen2_vl_path: str = None # '/media/rl/HDD/data/weights/Qwen2-VL-2B-Instruct'
 
     pretrained_path: str = None # pretrained dexvla
     using_film: bool = True
@@ -86,7 +86,10 @@ class DexVLAConfig(PreTrainedConfig):
             assert self.with_llm_head, f"using_reasoning requires `with_llm_head=True`"
             print("You have set using_reasoning=True, please make sure your data has key 'reasoning'.")
         else:
-            print(f"Warning:DexVLA recommend to use reasoning data which can better handle long-horizon and dexterous tasks. You can set 'using_reaasoning=True'.")
+            print(f"Warning:DexVLA recommends to use reasoning data which can better handle long-horizon and dexterous tasks. You can set 'using_reaasoning=True'.")
+
+        if self.qwen2_vl_path is None:
+            raise ValueError("DexVLA is built on official qwen2_vl-2B. You have to download the official weights of qwen2_vl-2B first and set 'qwen2_vl_path'.")
 
         if self.policy_head_type == 'scale_dp_policy':
             self.policy_head_config = AutoConfig.for_model(
@@ -107,7 +110,7 @@ class DexVLAConfig(PreTrainedConfig):
         else:
             raise ValueError(f'Policy head type {self.policy_head_type} not supported')
 
-        self.qwen2_vla_config = AutoConfig.from_pretrained(self.qwen2_vla_path)
+        self.qwen2_vla_config = AutoConfig.from_pretrained(self.qwen2_vl_path)
 
     def validate_features(self) -> None:
         # TODO: implement value error

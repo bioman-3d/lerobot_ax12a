@@ -50,9 +50,9 @@ class DexVLAPolicy(PreTrainedPolicy):
         self.model = Qwen2VLForConditionalGenerationForVLA(config.qwen2_vla_config).to(torch.bfloat16)
         self.model.requires_grad_(False)
         self.model.policy_head.requires_grad_(True)
-        self.qwen2_vl_processor = AutoProcessor.from_pretrained(config.qwen2_vla_path)
+        self.qwen2_vl_processor = AutoProcessor.from_pretrained(config.qwen2_vl_path)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            config.qwen2_vla_path
+            config.qwen2_vl_path
         )
         self.vla_processor = Qwen2VLAProcess(tokenizer=self.tokenizer, multimodal_processor=self.qwen2_vl_processor) # process the input data into VLM format
 
