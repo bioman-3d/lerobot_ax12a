@@ -128,7 +128,7 @@ class ConditionalUnet1D(PreTrainedModel):
           in addition to diffusion step embedding. This is usually obs_horizon * obs_dim
         diffusion_step_embed_dim: Size of positional encoding for diffusion iteration k
         down_dims: Channel size for each UNet level.
-          The length of this array determines numebr of levels.
+          The length of this array determines number of levels.
         kernel_size: Conv kernel size
         n_groups: Number of groups for GroupNorm
         """
@@ -301,7 +301,7 @@ class ConditionalUnet1D(PreTrainedModel):
             Tp = self.num_queries
             action_dim = 14
 
-            # initialize action from Guassian noise
+            # initialize action from Gaussian noise
             noisy_action = torch.randn((B, Tp, action_dim)).cuda()
 
             naction = noisy_action.to(dtype=hidden_states.dtype)

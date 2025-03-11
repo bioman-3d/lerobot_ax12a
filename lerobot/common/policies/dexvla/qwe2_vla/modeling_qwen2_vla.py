@@ -1937,12 +1937,12 @@ class Qwen2VLForConditionalGenerationForVLA(Qwen2VLPreTrainedModel, GenerationMi
         inputs_index = inputs_index.int()
 
         xor_array = torch.bitwise_xor(inputs_index[:, :-1], inputs_index[:, 1:])
-        indexs = torch.argmax((xor_array != 0).float(), dim=1)
+        indexes = torch.argmax((xor_array != 0).float(), dim=1)
         input_embeddings = []
         reasoning_embeddings = []
         identity = []
-        for i in range(indexs.shape[0]):
-            end = indexs[i] + 1
+        for i in range(indexes.shape[0]):
+            end = indexes[i] + 1
             temp = input_ids[i] == 151643  # pad token id for qwen2_vl
             start = sum(temp.int())
             input_embeddings.append(self.input_action_proj(hidden_states[i, start:end, :]))

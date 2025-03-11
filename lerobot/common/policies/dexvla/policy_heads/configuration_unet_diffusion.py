@@ -19,7 +19,7 @@ class UnetDiffusionPolicyConfig(PretrainedConfig):
         action_dim=10,
         global_cond_dim=2048,
         diffusion_step_embed_dim=256,
-        down_dims=[256, 512, 1024],
+        down_dims=None,
         kernel_size=5,
         n_groups=8,
         state_dim=7,
@@ -29,6 +29,8 @@ class UnetDiffusionPolicyConfig(PretrainedConfig):
         num_train_timesteps=100,
         **kwargs,
     ):
+        if down_dims is None:
+            down_dims = [256, 512, 1024]
         self.input_dim = action_dim
         self.noise_samples = noise_samples
         self.prediction_horizon = prediction_horizon
