@@ -251,23 +251,23 @@ class ConditionalUnet1D(PreTrainedModel):
     def forward(self, actions, hidden_states, states, is_pad):
         """
         Forward pass for the diffusion head.
-        :param actions: target actions, shape [B, Ta, D] D:10 = 3+6+1
-        :param hidden_states: hidden states from the llava_pythia, as the condition for the diffusion, shape [B,Tokens, D] 8 1200 1024
-        :param states: robot states, shape [B, D]
+        :param actions: target actions, shape [b, Ta, D] D:10 = 3+6+1
+        :param hidden_states: hidden states from the llava_pythia, as the condition for the diffusion, shape [b,Tokens, D] 8 1200 1024
+        :param states: robot states, shape [b, D]
         :return: loss
         """
         if actions is not None:  # training time
-            B = actions.size(0)
+            b = actions.size(0)
             actions = copy.deepcopy(actions[:, : self.num_queries])
             is_pad = copy.deepcopy(is_pad[:, : self.num_queries])
             num_noise_samples = self.noise_samples
             # sample noise to add to actions
             noise = torch.randn(
                 [num_noise_samples] + list(actions.shape), device=actions.device, dtype=actions.dtype
-            )  # num_noise, B, Ta, D
+            )  # num_noise, b, Ta, D
             # sample a diffusion iteration for each data point
             timesteps = torch.randint(
-                0, self.noise_scheduler.config.num_train_timesteps, (B,), device=actions.device
+                0, self.noise_scheduler.config.num_train_timesteps, (b,), device=actions.device
             ).long()
 
             timesteps, noise = timesteps.to(actions.device), noise.to(actions.device)
@@ -277,7 +277,7 @@ class ConditionalUnet1D(PreTrainedModel):
             noisy_actions = torch.cat(
                 [self.noise_scheduler.add_noise(actions, noise[i], timesteps) for i in range(len(noise))],
                 dim=0,
-            )  # [num_noise_samples * B, Ta, action_dim]
+            )  # [num_noise_samples * b, Ta, action_dim]
 
             noisy_actions = noisy_actions.to(dtype=actions.dtype)
             assert hidden_states.ndim == 3
@@ -297,12 +297,12 @@ class ConditionalUnet1D(PreTrainedModel):
             return {"loss": loss}
             # return loss
         else:  # inference time
-            B = 1
-            Tp = self.num_queries
+            b = 1
+            tp = self.num_queries
             action_dim = 14
 
             # initialize action from Gaussian noise
-            noisy_action = torch.randn((B, Tp, action_dim)).cuda()
+            noisy_action = torch.randn((b, tp, action_dim)).cuda()
 
             naction = noisy_action.to(dtype=hidden_states.dtype)
             # init scheduler
@@ -323,14 +323,14 @@ class ConditionalUnet1D(PreTrainedModel):
         self, sample: torch.Tensor, timestep: Union[torch.Tensor, float, int], global_cond=None, states=None
     ):
         """
-        x: (B,T,input_dim)
-        timestep: (B,) or int, diffusion step
-        global_cond: (B,global_cond_dim)
-        output: (B,T,input_dim)
+        x: (b,T,input_dim)
+        timestep: (b,) or int, diffusion step
+        global_cond: (b,global_cond_dim)
+        output: (b,T,input_dim)
         """
-        # (B,T,C)
+        # (b,t,c)
         sample = sample.moveaxis(-1, -2)
-        # (B,C,T)
+        # (b,c,t)
         # global_cond = self.global_1d_pool(global_cond.permute(0, 2, 1)).squeeze(-1)
         global_cond = global_cond.squeeze(1)
 
@@ -353,7 +353,7 @@ class ConditionalUnet1D(PreTrainedModel):
 
         x = sample
         h = []
-        for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
+        for _idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
             x = resnet(x, global_feature)
             x = resnet2(x, global_feature)
             h.append(x)
@@ -362,7 +362,7 @@ class ConditionalUnet1D(PreTrainedModel):
         for mid_module in self.mid_modules:
             x = mid_module(x, global_feature)
 
-        for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
+        for _idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet(x, global_feature)
             x = resnet2(x, global_feature)
@@ -370,9 +370,9 @@ class ConditionalUnet1D(PreTrainedModel):
 
         x = self.final_conv(x)
 
-        # (B,C,T)
+        # (b,c,t)
         x = x.moveaxis(-1, -2)
-        # (B,T,C)
+        # (b,t,c)
         return x
 
 

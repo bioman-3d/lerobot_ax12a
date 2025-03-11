@@ -8,12 +8,13 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as Func
+import torch.nn.functional as func
 import torch.utils.checkpoint
 from timm.models.vision_transformer import Mlp, use_fused_attn
 from torch.jit import Final
 from transformers import AutoModel
 from transformers.modeling_utils import PreTrainedModel
+from .configuration_scaledp import ScaleDPPolicyConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class Attention(nn.Module):
         q, k = self.q_norm(q), self.k_norm(k)
 
         if self.fused_attn:
-            x = Func.scaled_dot_product_attention(
+            x = func.scaled_dot_product_attention(
                 q,
                 k,
                 v,
@@ -74,7 +75,7 @@ class Attention(nn.Module):
                 attn_scores += attn_mask
 
             # Apply softmax to get attention weights (softmax is applied along the last dimension)
-            attn_weights = Func.softmax(attn_scores, dim=-1)
+            attn_weights = func.softmax(attn_scores, dim=-1)
 
             # Dropout on attention weights (if dropout is used)
             attn_weights = self.attn_drop(attn_weights)
@@ -191,7 +192,6 @@ class FinalLayer(nn.Module):
         return x
 
 
-from .configuration_scaledp import ScaleDPPolicyConfig
 
 
 class ScaleDP(PreTrainedModel):
@@ -379,23 +379,23 @@ class ScaleDP(PreTrainedModel):
     def forward(self, actions, hidden_states, states, is_pad):
         """
         Forward pass for the diffusion head.
-        :param actions: target actions, shape [B, Ta, D] D:10 = 3+6+1
-        :param hidden_states: hidden states from the llava_pythia, as the conScaleDPion for the diffusion, shape [B,Tokens, D] 8 1200 1024
-        :param states: robot states, shape [B, D]
+        :param actions: target actions, shape [b, Ta, D] D:10 = 3+6+1
+        :param hidden_states: hidden states from the llava_pythia, as the conScaleDPion for the diffusion, shape [b,Tokens, D] 8 1200 1024
+        :param states: robot states, shape [b, D]
         :return: loss
         """
         if actions is not None:  # training time
-            B = actions.size(0)
+            b = actions.size(0)
             actions = actions[:, : self.num_queries]
             is_pad = is_pad[:, : self.num_queries]
             num_noise_samples = self.noise_samples
             # sample noise to add to actions
             noise = torch.randn(
                 [num_noise_samples] + list(actions.shape), device=actions.device, dtype=actions.dtype
-            )  # num_noise, B, Ta, D(1, 2, 16, 14)
+            )  # num_noise, b, Ta, D(1, 2, 16, 14)
             # sample a diffusion iteration for each data point
             timesteps = torch.randint(
-                0, self.noise_scheduler.config.num_train_timesteps, (B,), device=actions.device
+                0, self.noise_scheduler.config.num_train_timesteps, (b,), device=actions.device
             ).long()
 
             timesteps, noise = timesteps.to(actions.device), noise.to(actions.device)
@@ -405,7 +405,7 @@ class ScaleDP(PreTrainedModel):
             noisy_actions = torch.cat(
                 [self.noise_scheduler.add_noise(actions, noise[i], timesteps) for i in range(len(noise))],
                 dim=0,
-            )  # [num_noise_samples * B, Ta, action_dim]
+            )  # [num_noise_samples * b, Ta, action_dim]
 
             noisy_actions = noisy_actions.to(dtype=actions.dtype)
             assert hidden_states.ndim == 3
@@ -425,12 +425,12 @@ class ScaleDP(PreTrainedModel):
             return {"loss": loss}
             # return loss
         else:  # inference time
-            B = 1
-            Tp = self.num_queries
+            b = 1
+            tp = self.num_queries
             action_dim = self.action_dim
 
             # initialize action from Gaussian noise
-            noisy_action = torch.randn((B, Tp, action_dim)).cuda()
+            noisy_action = torch.randn((b, tp, action_dim)).cuda()
 
             naction = noisy_action.to(dtype=hidden_states.dtype)
             # init scheduler
@@ -540,11 +540,11 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 #################################################################################
 
 
-def ScaleDP_H(**kwargs):
+def scaledp_h(**kwargs):
     return ScaleDP(depth=32, n_emb=1280, num_heads=16, **kwargs)
 
 
-def ScaleDP_L(**kwargs):
+def scaledp_l(**kwargs):
     return ScaleDP(depth=24, n_emb=1024, num_heads=16, **kwargs)
 
 

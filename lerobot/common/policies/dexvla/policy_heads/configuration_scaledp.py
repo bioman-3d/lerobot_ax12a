@@ -7,12 +7,12 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 MODEL_STRUCTURE = {
-    "ScaleDP_H": {
+    "scaledp_h": {
         "depth": 32,
         "n_emb": 1280,
         "num_heads": 16,
     },
-    "ScaleDP_L": {
+    "scaledp_l": {
         "depth": 24,
         "n_emb": 1024,
         "num_heads": 16,
