@@ -243,7 +243,7 @@ class Qwen2VLAConfig(PretrainedConfig):
 
         # Validate the correctness of rotary position embeddings parameters
         # BC: if there is a 'type' field, move it to 'rope_type'.
-        # and change type from 'mrope' to 'default' because `mrope` does defeault RoPE calculations
+        # and change type from 'mrope' to 'default' because `mrope` does default RoPE calculations
         # one can set it to "linear"/"dynamic" etc. to have scaled RoPE
         if self.rope_scaling is not None and "type" in self.rope_scaling:
             if self.rope_scaling["type"] == "mrope":

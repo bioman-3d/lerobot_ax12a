@@ -433,7 +433,7 @@ class ScaleDP(PreTrainedModel):
             Tp = self.num_queries
             action_dim = self.action_dim
 
-            # initialize action from Guassian noise
+            # initialize action from Gaussian noise
             noisy_action = torch.randn((B, Tp, action_dim)).cuda()
 
             naction = noisy_action.to(dtype=hidden_states.dtype)

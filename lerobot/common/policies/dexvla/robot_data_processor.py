@@ -97,10 +97,10 @@ class Qwen2VLAProcess:
         input_ids = [torch.flip(instance["input_ids"].squeeze(0), dims=[0]) for instance in instances]
         labels = [torch.flip(instance["labels"].squeeze(0), dims=[0]) for instance in instances]
 
-        image_grid_thw = torch.stack([instances["image_grid_thw"] for instances in instances])
+        image_grid_spatiotemporal = torch.stack([instances["image_grid_spatiotemporal"] for instances in instances])
         pixel_values = torch.stack([instances["pixel_values"] for instances in instances])
         pixel_values_videos = None
-        video_grid_thw = None
+        video_grid_spatiotemporal = None
 
         labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-100)
         labels = torch.flip(labels, dims=[1])
@@ -110,7 +110,7 @@ class Qwen2VLAProcess:
         input_ids = torch.flip(input_ids, dims=[1])
         b = input_ids.shape[0]
 
-        image_grid_thw = image_grid_thw.reshape(b * image_grid_thw.shape[1], image_grid_thw.shape[2])
+        image_grid_spatiotemporal = image_grid_spatiotemporal.reshape(b * image_grid_spatiotemporal.shape[1], image_grid_spatiotemporal.shape[2])
         pixel_values = pixel_values.reshape(b * pixel_values.shape[1], pixel_values.shape[2])
 
         attention_mask = (input_ids.ne(self.tokenizer.pad_token_id),)
@@ -119,9 +119,9 @@ class Qwen2VLAProcess:
             input_ids=input_ids,
             attention_mask=attention_mask[0],
             labels=labels,
-            image_grid_thw=image_grid_thw,
+            image_grid_spatiotemporal=image_grid_spatiotemporal,
             pixel_values_videos=pixel_values_videos,
-            video_grid_thw=video_grid_thw,
+            video_grid_spatiotemporal=video_grid_spatiotemporal,
             pixel_values=pixel_values,
         )
         return batch

@@ -124,7 +124,7 @@ class DexVLAPolicy(PreTrainedPolicy):
         is_eval=True,
         pixel_values=None,
         attention_mask=None,
-        image_grid_thw=None,
+        image_grid_spatiotemporal=None,
     ):
         input_ids = input_ids.to("cuda")
         with torch.inference_mode():
@@ -132,7 +132,7 @@ class DexVLAPolicy(PreTrainedPolicy):
                 input_ids,
                 pixel_values=pixel_values,
                 attention_mask=attention_mask,
-                image_grid_thw=image_grid_thw,
+                image_grid_spatiotemporal=image_grid_spatiotemporal,
                 is_eval=is_eval,
                 num_beams=1,
                 do_sample=False,
@@ -180,7 +180,7 @@ class DexVLAPolicy(PreTrainedPolicy):
         is_eval=True,
         pixel_values=None,
         attention_mask=None,
-        image_grid_thw=None,
+        image_grid_spatiotemporal=None,
     ):
         input_ids = input_ids.to("cuda")
         with torch.inference_mode():
@@ -188,7 +188,7 @@ class DexVLAPolicy(PreTrainedPolicy):
                 input_ids,
                 pixel_values=pixel_values,
                 attention_mask=attention_mask,
-                image_grid_thw=image_grid_thw,
+                image_grid_spatiotemporal=image_grid_spatiotemporal,
                 is_eval=is_eval,
                 tinyvla=True,
             )
