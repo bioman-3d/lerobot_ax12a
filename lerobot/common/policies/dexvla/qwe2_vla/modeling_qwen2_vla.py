@@ -48,7 +48,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
-from lerobot.common.policies.dexvla.fusion_modules import ActionProjector,FiLM
+from lerobot.common.policies.dexvla.fusion_modules import ActionProjector, FiLM
 
 from .configuration_qwen2_vla import Qwen2VLAConfig, Qwen2VLVisionConfig
 
@@ -1376,7 +1376,9 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                 (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
             )
             diagonal_attend_mask = torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
-            if config.sliding_window is not None and (not isinstance(past_key_values, SlidingWindowCache) or sequence_length > target_length):
+            if config.sliding_window is not None and (
+                not isinstance(past_key_values, SlidingWindowCache) or sequence_length > target_length
+            ):
                 # if we have sliding window, we should not attend to tokens beyond sliding window length, so we mask them out also
                 # the check is needed to verify is current checkpoint was trained with sliding window or not
                 sliding_attend_mask = torch.arange(target_length, device=device) <= (

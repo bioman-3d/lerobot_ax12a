@@ -13,6 +13,7 @@ from timm.models.vision_transformer import Mlp, use_fused_attn
 from torch.jit import Final
 from transformers import AutoModel
 from transformers.modeling_utils import PreTrainedModel
+
 from .configuration_scaledp import ScaleDPPolicyConfig
 
 _logger = logging.getLogger(__name__)
@@ -191,8 +192,6 @@ class FinalLayer(nn.Module):
         x = modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
         return x
-
-
 
 
 class ScaleDP(PreTrainedModel):
