@@ -49,6 +49,7 @@ from transformers.utils import (
 )
 
 from lerobot.common.policies.dexvla.fusion_modules import ActionProjector,FiLM
+from transformers import AutoModelForCausalLM
 
 from .configuration_qwen2_vla import Qwen2VLAConfig, Qwen2VLVisionConfig
 
@@ -2047,6 +2048,6 @@ class Qwen2VLForConditionalGenerationForVLA(Qwen2VLPreTrainedModel, GenerationMi
         return model_inputs
 
 
-from transformers import AutoModelForCausalLM
+
 
 AutoModelForCausalLM.register(Qwen2VLAConfig, Qwen2VLForConditionalGenerationForVLA)
