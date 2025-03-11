@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as func
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss, LayerNorm
-from transformers import AutoConfig, AutoModel
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, SlidingWindowCache, StaticCache
 from transformers.generation import GenerationMixin
@@ -48,8 +48,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
-from lerobot.common.policies.dexvla.fusion_modules import ActionProjector,FiLM
-from transformers import AutoModelForCausalLM
+from lerobot.common.policies.dexvla.fusion_modules import ActionProjector, FiLM
 
 from .configuration_qwen2_vla import Qwen2VLAConfig, Qwen2VLVisionConfig
 
@@ -2048,8 +2047,6 @@ class Qwen2VLForConditionalGenerationForVLA(Qwen2VLPreTrainedModel, GenerationMi
         )
         model_inputs.update(kwargs)
         return model_inputs
-
-
 
 
 AutoModelForCausalLM.register(Qwen2VLAConfig, Qwen2VLForConditionalGenerationForVLA)

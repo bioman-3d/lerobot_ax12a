@@ -30,10 +30,7 @@ class Qwen2VLAProcess:
         len_views = images.shape[0]
         messages = self.construct_chat_data(len_views, raw_lang)
 
-        data_dict = {
-            "messages":messages
-        }
-        
+        data_dict = {"messages": messages}
 
         image_data = torch.chunk(images, len_views, 0)
 
