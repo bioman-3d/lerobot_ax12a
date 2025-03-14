@@ -190,17 +190,15 @@ class LeKiwiRobot(Robot):
         actuators_calib_path = self.calibration_dir / f"{self.config.id}.json"
 
         if actuators_calib_path.exists():
-            with open(actuators_calib_path,encoding="utf-8") as f:
+            with open(actuators_calib_path, encoding="utf-8") as f:
                 calibration = json.load(f)
         else:
-            logging.info("Missing calibration file '%s'",actuators_calib_path)
-            calibration = run_full_arm_calibration(
-                self.actuators_bus, self.robot_type, self.name, "follower"
-            )
+            logging.info("Missing calibration file '%s'", actuators_calib_path)
+            calibration = run_full_arm_calibration(self.actuators_bus, self.robot_type, self.name, "follower")
 
-            logging.info("Calibration is done! Saving calibration file '%s'",actuators_calib_path)
+            logging.info("Calibration is done! Saving calibration file '%s'", actuators_calib_path)
             actuators_calib_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(actuators_calib_path, "w",encoding="utf-8") as f:
+            with open(actuators_calib_path, "w", encoding="utf-8") as f:
                 json.dump(calibration, f)
 
         self.actuators_bus.set_calibration(calibration)
@@ -309,7 +307,7 @@ class LeKiwiRobot(Robot):
                 # except zmq.Again:
                 #     logging.warning("ZMQ again")
                 except Exception as e:
-                    logging.error("Message fetching failed: %s",e)
+                    logging.error("Message fetching failed: %s", e)
 
                 # Watchdog: stop the robot if no command is received for over 0.5 seconds.
                 now = time.time()
