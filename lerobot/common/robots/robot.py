@@ -1,11 +1,11 @@
 import abc
+import enum
 from typing import Any
 
 from lerobot.common.constants import HF_LEROBOT_CALIBRATION, ROBOTS
 
 from .config import RobotConfig
 
-import enum
 
 class RobotMode(enum.Enum):
     TELEOP = 0
